@@ -99,7 +99,8 @@ class RZAutomedata(ctk.CTk, TkinterDnD.DnDWrapper if HAS_DND else object):
         # ─── App Icon ────────────────────────────────────────────────────
         try:
             if getattr(sys, 'frozen', False):
-                base_path = os.path.dirname(sys.executable)
+                # For --onefile builds, data files are in sys._MEIPASS (temp dir)
+                base_path = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
             else:
                 base_path = os.path.dirname(os.path.abspath(__file__))
             icon_path = os.path.join(base_path, "icon.ico")

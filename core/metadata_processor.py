@@ -6,9 +6,9 @@ Orchestrates loading assets, calling AI, and saving results.
 import os
 import glob
 from PIL import Image
-from video_utils import extract_frames
-from ai_providers import generate_metadata
-import database as db
+from core.video_utils import extract_frames
+from core.ai_providers import generate_metadata
+import core.database as db
 
 # ── Auto-detect Ghostscript for EPS support ──────────────────────────────────
 def _setup_ghostscript():
@@ -85,7 +85,7 @@ def load_preview_image(file_path, file_type, size=(200, 150)):
                 return img
             return _create_vector_placeholder(file_path, size, "EPS")
     elif file_type == "video":
-        from video_utils import get_video_thumbnail
+        from core.video_utils import get_video_thumbnail
         return get_video_thumbnail(file_path, size)
     
     return _create_placeholder(file_path, size, "FILE")

@@ -96,6 +96,19 @@ class RZAutomedata(ctk.CTk, TkinterDnD.DnDWrapper if HAS_DND else object):
         self.minsize(1200, 780)
         self.configure(fg_color=COLORS["bg_darkest"])
 
+        # ─── App Icon ────────────────────────────────────────────────────
+        try:
+            if getattr(sys, 'frozen', False):
+                base_path = os.path.dirname(sys.executable)
+            else:
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            icon_path = os.path.join(base_path, "icon.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(icon_path)
+                self.after(200, lambda: self.iconbitmap(icon_path))
+        except Exception:
+            pass
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 

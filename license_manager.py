@@ -30,7 +30,7 @@ SUPABASE_URL = "https://wezzprtpainlmtqxoepb.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndlenpwcnRwYWlubG10cXhvZXBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwODAyNTYsImV4cCI6MjA4NjY1NjI1Nn0.r6KHePgzAeBlmxGi10zyLe_6kxwiYRJEuJMxe3IOv8M"
 
 # App version — update setiap kali build EXE baru
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "1.1.0"
 
 # Trial duration
 TRIAL_DAYS = 2

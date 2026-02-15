@@ -30,7 +30,8 @@ def main():
         "--name=RZAutomedata",
         "--onefile",                    # Single exe file
         "--windowed",                   # No console window
-        "--icon=NONE",                  # No icon (add your .ico later)
+        "--icon=icon.ico",              # App icon
+        "--add-data=icon.ico;.",        # Include icon for runtime
         # Hidden imports for libraries that PyInstaller might miss
         "--hidden-import=customtkinter",
         "--hidden-import=PIL",

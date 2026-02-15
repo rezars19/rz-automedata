@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyo
+
+# Distribution / Packaging
+build/
+dist/
+*.spec
+*.egg-info/
+*.egg
+
+# Virtual Environment
+venv/
+.env/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# App runtime files
+*.db
+*.sqlite3
+*.log
+assets_db.json
+
+# Build output
+output/
+RZAutomedata.exe
+
+# Sensitive files (jangan commit!)
+# Uncomment jika URL/Key Supabase sudah di-hardcode:
+# license_manager.py
+
+# Temp
+*.tmp
+*.bak
+*.old
+
+# Gemini
+.gemini/
+.agent/

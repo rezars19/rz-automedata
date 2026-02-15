@@ -1,0 +1,10 @@
+customtkinter>=5.2.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+supabase>=2.0.0
+google-generativeai>=0.8.0
+groq>=0.4.0
+httpx>=0.25.0
+packaging>=23.0
+tkinterdnd2>=0.4.0

@@ -7,7 +7,10 @@ import sqlite3
 import os
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rz_automedata.db")
+# Use AppData folder for persistent storage (works with exe and script)
+_APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "RZAutomedata")
+os.makedirs(_APP_DIR, exist_ok=True)
+DB_PATH = os.path.join(_APP_DIR, "rz_automedata.db")
 
 
 def get_connection():

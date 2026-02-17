@@ -166,7 +166,6 @@ PROVIDERS = {
             "maia/gemini-2.5-flash-lite",
             "maia/gemini-2.0-flash",
             "maia/gemini-1.5-flash",
-            "openai/gpt-5-nano",
             "openai/gpt-4.1-nano"
         ]
     },
@@ -610,6 +609,11 @@ def generate_metadata(provider_name, model, api_key, images_pil, filename, file_
         "Authorization": f"Bearer {api_key}"
     }
 
+    # OpenRouter requires these headers for authentication
+    if provider_name == "OpenRouter":
+        headers["HTTP-Referer"] = "https://rz-automedata.app"
+        headers["X-Title"] = "RZ Automedata"
+
     max_tok = 2048
     if platform == "shutterstock":
         max_tok = 4096
@@ -623,11 +627,19 @@ def generate_metadata(provider_name, model, api_key, images_pil, filename, file_
         "temperature": 0.3
     }
 
+    # Debug: log key info for troubleshooting
+    masked_key = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+    print(f"[DEBUG] Provider: {provider_name}, URL: {url}")
+    print(f"[DEBUG] API Key: {masked_key} (len={len(api_key)})")
+    print(f"[DEBUG] Headers: {list(headers.keys())}")
+
     # Make API call
     response = requests.post(url, headers=headers, json=payload, timeout=60)
 
     if response.status_code != 200:
         error_text = response.text[:500]
+        print(f"[DEBUG] Response status: {response.status_code}")
+        print(f"[DEBUG] Response body: {error_text}")
         raise Exception(f"API Error ({response.status_code}): {error_text}")
 
     resp_json = response.json()
@@ -636,6 +648,15 @@ def generate_metadata(provider_name, model, api_key, images_pil, filename, file_
     try:
         content = resp_json["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
+        print(f"[DEBUG] Full response: {json.dumps(resp_json)[:800]}")
         raise Exception(f"Unexpected API response structure: {json.dumps(resp_json)[:500]}")
+
+    if not content or not content.strip():
+        print(f"[DEBUG] Empty response from model. Full response: {json.dumps(resp_json)[:800]}")
+        raise Exception(
+            f"Model '{model}' returned an empty response. "
+            f"This model may not support vision/image inputs. "
+            f"Try a different model (e.g. gemini-2.5-flash-lite or gpt-4.1-nano)."
+        )
 
     return _parse_response(content, custom_prompt, platform=platform)

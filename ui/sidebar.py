@@ -27,7 +27,7 @@ class SidebarMixin:
             parent, fg_color=COLORS["bg_dark"], corner_radius=12,
             border_width=1, border_color=COLORS["border"], width=290
         )
-        sidebar_outer.grid(row=0, column=0, sticky="nsew")
+        sidebar_outer.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=(8, 12))
         sidebar_outer.grid_propagate(False)
         sidebar_outer.grid_rowconfigure(0, weight=1)
         sidebar_outer.grid_columnconfigure(0, weight=1)

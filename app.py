@@ -43,6 +43,8 @@ from ui.header import HeaderMixin
 from ui.sidebar import SidebarMixin
 from ui.table import TableMixin
 from ui.actions import ActionsMixin
+from ui.navigation import NavigationMixin
+from ui.keyword_research import KeywordResearchMixin
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +52,11 @@ logger = logging.getLogger(__name__)
 class RZAutomedata(
     LicenseUpdateMixin,
     HeaderMixin,
+    NavigationMixin,
     SidebarMixin,
     TableMixin,
     ActionsMixin,
+    KeywordResearchMixin,
     ctk.CTk,
     TkinterDnD.DnDWrapper if HAS_DND else object,
 ):
@@ -207,19 +211,39 @@ class RZAutomedata(
         # Header
         self._build_header()
 
-        # Body
-        body = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=12, pady=(8, 12))
-        body.grid_rowconfigure(0, weight=1)
-        body.grid_columnconfigure(0, weight=0)  # Sidebar
-        body.grid_columnconfigure(1, weight=1)  # Content
+        # ── Outer body: Navigation bar + Page container ──
+        outer_body = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        outer_body.pack(fill="both", expand=True, padx=0, pady=0)
+        outer_body.grid_rowconfigure(0, weight=1)
+        outer_body.grid_columnconfigure(0, weight=0)  # Nav bar (narrow)
+        outer_body.grid_columnconfigure(1, weight=1)  # Page container
 
-        # Left sidebar
+        # Left navigation (icon sidebar)
+        self._build_navigation(outer_body)
+
+        # Page container — holds switchable pages
+        page_container = ctk.CTkFrame(outer_body, fg_color="transparent")
+        page_container.grid(row=0, column=1, sticky="nsew", padx=(0, 0))
+        page_container.grid_rowconfigure(0, weight=1)
+        page_container.grid_columnconfigure(0, weight=1)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # PAGE 1: METADATA (sidebar + table/log)
+        # ═══════════════════════════════════════════════════════════════════
+        self.metadata_page_frame = ctk.CTkFrame(page_container, fg_color="transparent")
+        self.metadata_page_frame.grid(row=0, column=0, sticky="nsew")
+        self.metadata_page_frame.grid_rowconfigure(0, weight=1)
+        self.metadata_page_frame.grid_columnconfigure(0, weight=0)  # Sidebar
+        self.metadata_page_frame.grid_columnconfigure(1, weight=1)  # Content
+
+        body = self.metadata_page_frame
+
+        # Left sidebar (metadata settings)
         self._build_sidebar(body)
 
         # Right content area (table + log)
         self.right_frame = ctk.CTkFrame(body, fg_color="transparent")
-        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 12), pady=(8, 12))
         self.right_frame.grid_rowconfigure(0, weight=3)
         self.right_frame.grid_rowconfigure(2, weight=1)
         self.right_frame.grid_columnconfigure(0, weight=1)
@@ -227,6 +251,11 @@ class RZAutomedata(
         self._build_asset_table(self.right_frame)
         self._build_log_toggle(self.right_frame)
         self._build_log_panel(self.right_frame)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # PAGE 2: KEYWORD RESEARCH
+        # ═══════════════════════════════════════════════════════════════════
+        self._build_keyword_research_page(page_container)
 
 
 # ═════════════════════════════════════════════════════════════════════════════════

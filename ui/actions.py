@@ -151,12 +151,15 @@ class ActionsMixin:
             self._start_generation()
 
     def _start_generation(self):
-        api_key = self.api_key_entry.get().strip()
+        # Try per-provider key first, fallback to entry field
+        provider = self.provider_var.get()
+        api_key = self.api_keys.get(provider, "")
+        if not api_key:
+            api_key = self.api_key_entry.get().strip()
         if not api_key:
             messagebox.showwarning("API Key Required", "Please enter your API key.")
             return
 
-        provider = self.provider_var.get()
         model = self.model_var.get()
         if not model:
             messagebox.showwarning("Model Required", "Please select a model.")

@@ -146,6 +146,15 @@ class LocalUpscaler:
     def exe_path(self):
         return self._exe_path
 
+    def _check_vulkan_available(self):
+        """Check if Vulkan runtime is available. Raises RuntimeError if not."""
+        try:
+            import ctypes
+            ctypes.cdll.LoadLibrary("vulkan-1.dll")
+            return True
+        except OSError:
+            return False
+
     # ── GPU Detection ─────────────────────────────────────────────────────
 
     def detect_gpu(self):
@@ -161,7 +170,18 @@ class LocalUpscaler:
 
         # Method 1 (BEST): Use ncnn-vulkan binary to enumerate Vulkan devices
         # This detects ANY Vulkan-capable GPU: NVIDIA, AMD, Intel
+        # BUT: only try if vulkan-1.dll exists, otherwise Windows shows
+        # a "DLL not found" system error dialog that we can't suppress.
+        has_vulkan_dll = False
         if self.is_installed:
+            try:
+                import ctypes
+                ctypes.cdll.LoadLibrary("vulkan-1.dll")
+                has_vulkan_dll = True
+            except OSError:
+                logger.info("vulkan-1.dll not found — skipping ncnn-vulkan GPU detection")
+
+        if self.is_installed and has_vulkan_dll:
             try:
                 r = subprocess.run(
                     [self._exe_path, "-i", ".", "-o", "."],
@@ -371,6 +391,11 @@ class LocalUpscaler:
         if not self.is_installed:
             raise RuntimeError("Engine not installed. Download it first.")
 
+        if not self._check_vulkan_available() and not force_cpu:
+            # No Vulkan = force CPU mode silently
+            force_cpu = True
+            logger.info("Vulkan not available, falling back to CPU mode")
+
         self._cancel = False
         if force_cpu:
             gpu = {"has_gpu": False, "gpu_name": "CPU", "device_id": -1}
@@ -523,6 +548,11 @@ class LocalUpscaler:
         """
         if not self.is_installed:
             raise RuntimeError("Engine not installed. Download it first.")
+
+        if not self._check_vulkan_available() and not force_cpu:
+            # No Vulkan = force CPU mode silently
+            force_cpu = True
+            logger.info("Vulkan not available, falling back to CPU mode for video")
 
         self._cancel = False
         if force_cpu:

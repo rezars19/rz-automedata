@@ -8,22 +8,57 @@ import requests
 import json
 import base64
 import re
+import time
+
+
+# Words that should NEVER appear at the end of a title/description.
+# These are articles, prepositions, conjunctions, and other "dangling" words.
+_DANGLING_TAIL_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'nor', 'for', 'yet', 'so',
+    'in', 'on', 'at', 'to', 'of', 'by', 'as', 'is', 'it', 'its',
+    'with', 'from', 'into', 'that', 'this', 'than', 'then',
+    'are', 'was', 'were', 'be', 'been', 'being',
+    'has', 'have', 'had', 'do', 'does', 'did',
+    'will', 'would', 'shall', 'should', 'may', 'might', 'can', 'could',
+    'not', 'no', 'if', 'when', 'where', 'while', 'which', 'who',
+    'their', 'our', 'your', 'his', 'her',
+}
+
+
+def _strip_dangling_tail(text):
+    """Remove trailing articles/prepositions/conjunctions that make no sense at the end."""
+    if not text:
+        return text
+    # Also strip trailing punctuation that isn't a period
+    text = text.rstrip()
+    while text:
+        words = text.rsplit(None, 1)
+        if len(words) < 2:
+            break  # Single word left, keep it
+        last_word = words[-1].rstrip('.,;:!?').lower()
+        if last_word in _DANGLING_TAIL_WORDS:
+            text = words[0].rstrip()
+        else:
+            break
+    # Remove trailing comma/semicolon but keep period
+    text = text.rstrip(',;: ')
+    return text
 
 
 def _truncate_to_complete_word(text, max_length):
     """Truncate text to max_length, ensuring it ends at a complete word boundary."""
     if not text or len(text) <= max_length:
-        return text
+        return _strip_dangling_tail(text)
     # Cut to max_length
     truncated = text[:max_length]
     # If the next character (beyond max_length) is a space or we're at a word boundary, we're fine
     if len(text) > max_length and text[max_length] == ' ':
-        return truncated.rstrip()
+        return _strip_dangling_tail(truncated.rstrip())
     # Otherwise, find the last space to avoid cutting mid-word
     last_space = truncated.rfind(' ')
     if last_space > 0:
-        return truncated[:last_space].rstrip()
-    return truncated  # Single long word, just cut
+        return _strip_dangling_tail(truncated[:last_space].rstrip())
+    return _strip_dangling_tail(truncated)  # Single long word, just cut
 
 
 def _try_repair_truncated_json(text):
@@ -31,6 +66,8 @@ def _try_repair_truncated_json(text):
     
     When max_tokens cuts off the response mid-JSON, this tries to
     close any open strings and braces to make it parseable.
+    Handles common truncation patterns like:
+      {"title": "...", "keywords": "kw1, kw2, kw3, incompl
     """
     text = text.strip()
     if not text:
@@ -60,17 +97,24 @@ def _try_repair_truncated_json(text):
     
     # If we're inside an open string, close it
     if in_string:
-        # Remove any trailing incomplete word/character fragment
-        # Find the last complete word in the open string value
+        # Find the last opening quote (the one that started this value)
         last_quote = repaired.rfind('"')
         if last_quote >= 0:
-            # Get the content after the last opening quote
             content_after_quote = repaired[last_quote + 1:]
-            # Trim to last complete word
+            # Trim to last complete word (remove truncated fragment)
+            last_comma = content_after_quote.rfind(',')
             last_space = content_after_quote.rfind(' ')
-            if last_space > 0:
+            # For keywords field: trim to last complete keyword (after comma)
+            if last_comma > 0 and last_comma > last_space - 10:
+                # Cut at last comma to keep complete keywords
+                repaired = repaired[:last_quote + 1 + last_comma]
+            elif last_space > 0:
                 repaired = repaired[:last_quote + 1 + last_space]
             repaired += '"'
+    
+    # Close any open brackets
+    open_brackets = repaired.count('[') - repaired.count(']')
+    repaired += ']' * max(0, open_brackets)
     
     # Close any open braces
     open_braces = repaired.count('{') - repaired.count('}')
@@ -81,8 +125,22 @@ def _try_repair_truncated_json(text):
         json.loads(repaired)
         return repaired
     except json.JSONDecodeError:
-        # If repair didn't work, return original
-        return text
+        pass
+    
+    # Second attempt: more aggressive repair
+    # Strip everything after the last properly closed key-value pair
+    # Look for pattern like: "key": "value", or "key": number,
+    match = re.search(r'(.*"\s*:\s*(?:"[^"]*"|\d+)\s*),?\s*"?[^}]*$', text, re.DOTALL)
+    if match:
+        repaired = match.group(1) + '}'
+        try:
+            json.loads(repaired)
+            return repaired
+        except json.JSONDecodeError:
+            pass
+    
+    # Last resort: return original
+    return text
 
 
 # ─── Adobe Stock Categories ─────────────────────────────────────────────────────
@@ -282,6 +340,7 @@ STRICT RULES:
    - Use terms that Adobe Stock buyers actually search for.
    - Separate each keyword with a comma.
    - Write in English.
+   - **ABSOLUTELY NO DUPLICATE KEYWORDS.** Every keyword must be unique. Do NOT repeat any word or phrase, even in different forms (e.g., do not use both "dog" and "dogs", or "beautiful" and "beautiful design"). Each keyword must add NEW meaning.
 
 3. **Category** (choose ONE number from the list below that BEST matches the PRIMARY subject of the image):
 {CATEGORY_LIST_STR}
@@ -337,6 +396,7 @@ STRICT RULES:
    - Use terms that Shutterstock buyers actually search for.
    - Separate each keyword with a comma.
    - Write in English.
+   - **ABSOLUTELY NO DUPLICATE KEYWORDS.** Every keyword must be unique. Do NOT repeat any word or phrase, even in different forms (e.g., do not use both "dog" and "dogs", or "beautiful" and "beautiful design"). Each keyword must add NEW meaning.
 
 3. **Categories** (choose TWO categories from the list below):
    - category1: The PRIMARY/MAIN category that BEST matches the image content
@@ -408,6 +468,7 @@ STRICT RULES:
    - RANK BY IMPORTANCE: most relevant and high-search-volume keywords FIRST.
    - Include: main subject, actions, emotions, style, colors, composition, mood, concepts.
    - Separate each keyword with a comma.
+   - **ABSOLUTELY NO DUPLICATE KEYWORDS.** Every keyword must be unique. Do NOT repeat any word or phrase, even in different forms (e.g., do not use both "dog" and "dogs", or "beautiful" and "beautiful design"). Each keyword must add NEW meaning.
 
 {prompt_section}{brand_rules}
 {custom_instructions}
@@ -492,9 +553,10 @@ def _parse_response(response_text, custom_prompt="", platform="adobestock"):
     try:
         data = json.loads(text)
 
-        # Parse keywords (shared by both platforms)
-        keywords = str(data.get("keywords", "")).strip()
-        kw_list = [kw.strip() for kw in keywords.split(",") if kw.strip()]
+        # ── Parse keywords (shared by all platforms) ────────────────────
+        keywords_raw = str(data.get("keywords", "")).strip()
+        # Split carefully: keywords may contain commas inside phrases
+        kw_list = [kw.strip() for kw in keywords_raw.split(",") if kw.strip()]
 
         # Enforce custom keywords at the beginning of keywords list
         if custom_prompt:
@@ -503,13 +565,30 @@ def _parse_response(response_text, custom_prompt="", platform="adobestock"):
             kw_list = [kw for kw in kw_list if kw.lower() not in custom_lower]
             kw_list = custom_keywords + kw_list
 
-        # Ensure max 49 keywords
+        # Remove empty / whitespace-only entries that may inflate the count
+        kw_list = [kw for kw in kw_list if kw.strip()]
+
+        # ── Remove duplicate keywords (case-insensitive) ────────────────
+        seen = set()
+        unique_kw_list = []
+        for kw in kw_list:
+            kw_lower = kw.strip().lower()
+            if kw_lower not in seen:
+                seen.add(kw_lower)
+                unique_kw_list.append(kw)
+        kw_list = unique_kw_list
+
+        # Ensure exactly 49 keywords (trim excess)
         if len(kw_list) > 49:
             kw_list = kw_list[:49]
+
+        # Reconstruct keywords as a clean comma-separated string
         keywords = ", ".join(kw_list)
 
         if platform == "freepik":
             title = str(data.get("title", "")).strip()
+            # Validate title ends on a meaningful word
+            title = _strip_dangling_tail(title)
             prompt = str(data.get("prompt", "")).strip()
 
             # Strip "Create/Generate/Design..." prefixes from prompt
@@ -531,6 +610,8 @@ def _parse_response(response_text, custom_prompt="", platform="adobestock"):
             description = str(data.get("description", "")).strip()
             if len(description) > 2000:
                 description = _truncate_to_complete_word(description, 2000)
+            # Validate description ends on a meaningful word
+            description = _strip_dangling_tail(description)
 
             category1 = str(data.get("category1", "")).strip()
             category2 = str(data.get("category2", "")).strip()
@@ -552,6 +633,8 @@ def _parse_response(response_text, custom_prompt="", platform="adobestock"):
 
             if len(title) > 199:
                 title = _truncate_to_complete_word(title, 199)
+            # Validate title ends on a meaningful word
+            title = _strip_dangling_tail(title)
 
             # Validate category is a number 1-21
             try:
@@ -614,11 +697,9 @@ def generate_metadata(provider_name, model, api_key, images_pil, filename, file_
         headers["HTTP-Referer"] = "https://rz-automedata.app"
         headers["X-Title"] = "RZ Automedata"
 
-    max_tok = 2048
-    if platform == "shutterstock":
-        max_tok = 4096
-    elif platform == "freepik" and ai_generated:
-        max_tok = 4096
+    # 4096 tokens is needed for: title (180-199 chars) + 49 keywords + category
+    # 2048 was causing truncation, especially for video files with long filenames
+    max_tok = 4096
 
     payload = {
         "model": model,
@@ -633,13 +714,45 @@ def generate_metadata(provider_name, model, api_key, images_pil, filename, file_
     print(f"[DEBUG] API Key: {masked_key} (len={len(api_key)})")
     print(f"[DEBUG] Headers: {list(headers.keys())}")
 
-    # Make API call
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    # ── API call with retry for transient server errors ────────────────
+    MAX_RETRIES = 3
+    RETRY_STATUSES = {500, 502, 503, 429}   # server errors + rate limit
+    last_error = None
 
-    if response.status_code != 200:
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+        except requests.exceptions.Timeout:
+            last_error = "Request timed out (60s). The server may be overloaded."
+            if attempt < MAX_RETRIES:
+                wait = 3 * (2 ** (attempt - 1))  # 3s, 6s, 12s
+                print(f"[RETRY] Attempt {attempt}/{MAX_RETRIES} timed out, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            raise Exception(last_error)
+        except requests.exceptions.ConnectionError as e:
+            last_error = f"Connection error: {e}"
+            if attempt < MAX_RETRIES:
+                wait = 3 * (2 ** (attempt - 1))
+                print(f"[RETRY] Attempt {attempt}/{MAX_RETRIES} connection error, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            raise Exception(last_error)
+
+        if response.status_code == 200:
+            break  # Success — exit retry loop
+
         error_text = response.text[:500]
         print(f"[DEBUG] Response status: {response.status_code}")
         print(f"[DEBUG] Response body: {error_text}")
+
+        if response.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
+            wait = 3 * (2 ** (attempt - 1))  # 3s, 6s, 12s
+            print(f"[RETRY] Attempt {attempt}/{MAX_RETRIES} got {response.status_code}, retrying in {wait}s...")
+            time.sleep(wait)
+            continue
+
+        # Non-retryable error or final attempt
         raise Exception(f"API Error ({response.status_code}): {error_text}")
 
     resp_json = response.json()

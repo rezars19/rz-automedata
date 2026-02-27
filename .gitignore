@@ -40,8 +40,9 @@ output/
 RZAutomedata.exe
 
 # Sensitive files (jangan commit!)
-# Uncomment jika URL/Key Supabase sudah di-hardcode:
-# license_manager.py
+.gdrive_creds.json
+.gdrive_token.json
+credentials.json
 
 # Temp
 *.tmp
@@ -51,3 +52,20 @@ RZAutomedata.exe
 # Gemini
 .gemini/
 .agent/
+
+# Upscaler engine binary (70MB+, downloaded at runtime)
+realesrgan-engine/
+
+# FFmpeg binary (bundled in installer, ~164MB)
+ffmpeg/
+
+# Font cache (downloaded at runtime)
+fonts_cache/
+
+# Output folders
+Output/
+
+# Test/debug files
+_test_*.py
+_check_*.py
+admin_panel.html

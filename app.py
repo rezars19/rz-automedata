@@ -36,6 +36,7 @@ from core.license_manager import (
     get_current_version, is_configured, get_machine_id, CURRENT_VERSION
 )
 from core.auto_updater import download_update, apply_update_and_restart, is_frozen
+from core.dependency_checker import ensure_dependencies
 
 from ui.theme import COLORS, PREVIEW_SIZE, compress_preview
 from ui.license import LicenseUpdateMixin
@@ -45,6 +46,9 @@ from ui.table import TableMixin
 from ui.actions import ActionsMixin
 from ui.navigation import NavigationMixin
 from ui.keyword_research import KeywordResearchMixin
+from ui.prompt_generator import PromptGeneratorMixin
+from ui.upscaler import UpscalerMixin
+from ui.abstract_video import AbstractVideoMixin
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,9 @@ class RZAutomedata(
     TableMixin,
     ActionsMixin,
     KeywordResearchMixin,
+    PromptGeneratorMixin,
+    UpscalerMixin,
+    AbstractVideoMixin,
     ctk.CTk,
     TkinterDnD.DnDWrapper if HAS_DND else object,
 ):
@@ -66,7 +73,7 @@ class RZAutomedata(
             self.TkdndVersion = TkinterDnD._require(self)
 
         # ─── Window Setup ────────────────────────────────────────────────
-        self.title("⚡ RZ Automedata — Stock Metadata Generator")
+        self.title("⚡ RZ Studio — Creative Suite")
         self.geometry("1360x880")
         self.minsize(1200, 780)
         self.configure(fg_color=COLORS["bg_darkest"])
@@ -131,6 +138,9 @@ class RZAutomedata(
         # ─── Check for updates (background, non-blocking) ────────────────
         if is_configured():
             self.after(1500, self._check_for_updates)
+
+        # ─── Ensure FFmpeg & RealESRGAN are available ─────────────────────
+        self.after(2000, self._ensure_dependencies)
 
     # ═════════════════════════════════════════════════════════════════════════════
     # SETTINGS PERSISTENCE
@@ -200,6 +210,17 @@ class RZAutomedata(
         self.destroy()
 
     # ═════════════════════════════════════════════════════════════════════════════
+    # DEPENDENCY CHECK
+    # ═════════════════════════════════════════════════════════════════════════════
+
+    def _ensure_dependencies(self):
+        """Check and auto-download FFmpeg & RealESRGAN if missing."""
+        def _on_status(msg):
+            if msg:
+                logger.info("Dependency: %s", msg)
+        ensure_dependencies(on_status=_on_status)
+
+    # ═════════════════════════════════════════════════════════════════════════════
     # UI CONSTRUCTION
     # ═════════════════════════════════════════════════════════════════════════════
 
@@ -256,6 +277,28 @@ class RZAutomedata(
         # PAGE 2: KEYWORD RESEARCH
         # ═══════════════════════════════════════════════════════════════════
         self._build_keyword_research_page(page_container)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # PAGE 3: PROMPT GENERATOR
+        # ═══════════════════════════════════════════════════════════════════
+        self._build_prompt_generator_page(page_container)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # PAGE 4: MEDIA UPSCALER
+        # ═══════════════════════════════════════════════════════════════════
+        self._build_upscaler_page(page_container)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # PAGE 5: ABSTRACT VIDEO BACKGROUND
+        # ═══════════════════════════════════════════════════════════════════
+        self._build_abstract_video_page(page_container)
+
+        # ── Register all page frames with navigation ──
+        self._register_page_frame("metadata", self.metadata_page_frame)
+        self._register_page_frame("keyword_research", self.kr_page_frame)
+        self._register_page_frame("prompt_generator", self.pg_page_frame)
+        self._register_page_frame("upscaler", self.upscaler_page_frame)
+        self._register_page_frame("abstract_video", self.av_page_frame)
 
 
 # ═════════════════════════════════════════════════════════════════════════════════

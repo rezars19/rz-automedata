@@ -301,6 +301,141 @@ def analyze_keywords(keywords, asset_type="all", on_progress=None, on_keyword_do
     return results
 
 
+# ─── Trending Keywords ────────────────────────────────────────────────────────
+
+# Trending seed terms — keep minimal to avoid rate limiting (3 per category)
+_TRENDING_SEEDS = {
+    "photo": ["trending", "lifestyle", "nature"],
+    "vector": ["icon", "background", "illustration"],
+    "video": ["cinematic", "aerial", "nature"],
+}
+
+
+def _safe_search(session, keyword, asset_type, timeout=12):
+    """Search with retry on 403 — waits and retries once."""
+    try:
+        result = session.search(keyword, asset_type=asset_type, timeout=timeout)
+        return result
+    except ConnectionError as e:
+        if "403" in str(e):
+            logger.info(f"Got 403 for '{keyword}', waiting 4s and retrying...")
+            time.sleep(4)
+            # Force fresh session
+            with session._lock:
+                session._init_session()
+                time.sleep(1)
+            try:
+                return session.search(keyword, asset_type=asset_type, timeout=timeout)
+            except Exception:
+                return None
+        return None
+    except Exception:
+        return None
+
+
+def fetch_trending_keywords(on_progress=None, stop_event=None):
+    """
+    Fetch trending/popular keywords from Adobe Stock for each asset type.
+    
+    Uses a conservative approach with long delays to avoid 403 rate limiting.
+    Searches 3 seed terms per category, collects longtail suggestions,
+    then looks up the top candidates.
+    
+    Returns:
+        dict: {"photo": [...], "vector": [...], "video": [...]}
+              Each list contains dicts with: keyword, total_results, etc.
+    """
+    if not HAS_REQUESTS:
+        logger.error("requests library not available")
+        return {"photo": [], "vector": [], "video": []}
+
+    session = AdobeStockSession.get_instance()
+    asset_types = ["photo", "vector", "video"]
+
+    # Force fresh session at start
+    with session._lock:
+        session._init_session()
+    time.sleep(1)
+
+    total_steps = sum(len(_TRENDING_SEEDS[t]) for t in asset_types)
+    current_step = 0
+
+    final = {"photo": [], "vector": [], "video": []}
+
+    for asset_type in asset_types:
+        if stop_event and stop_event.is_set():
+            break
+
+        seeds = _TRENDING_SEEDS[asset_type]
+        collected_keywords = []
+        seen = set()
+
+        # Phase 1: Collect longtail keywords from seeds
+        for seed in seeds:
+            if stop_event and stop_event.is_set():
+                break
+
+            current_step += 1
+            if on_progress:
+                on_progress(current_step, total_steps, asset_type)
+
+            result = _safe_search(session, seed, asset_type)
+            if result:
+                longtails = result.get("longtail_keywords", [])
+                for lt in longtails:
+                    kw_text = ""
+                    if isinstance(lt, dict):
+                        kw_text = lt.get("text", lt.get("keyword", "")).strip().lower()
+                    elif isinstance(lt, str):
+                        kw_text = lt.strip().lower()
+
+                    if kw_text and len(kw_text) >= 3 and kw_text not in seen:
+                        seen.add(kw_text)
+                        collected_keywords.append(kw_text)
+
+            # Generous delay between requests to avoid 403
+            time.sleep(2)
+
+        # Phase 2: Look up result counts for top 5 candidates only
+        candidates = collected_keywords[:5]
+
+        for kw in candidates:
+            if stop_event and stop_event.is_set():
+                break
+
+            result = _safe_search(session, kw, asset_type)
+            if result:
+                total = result.get("total", 0)
+                if total > 0:
+                    # Build full result dict
+                    comp_level, comp_icon, comp_color = _get_competition_level(total)
+                    opp_level, opp_icon, opp_color = _get_opportunity_level(total)
+                    final[asset_type].append({
+                        "keyword": kw,
+                        "total_results": total,
+                        "competition_level": comp_level,
+                        "competition_icon": comp_icon,
+                        "competition_color": comp_color,
+                        "opportunity_level": opp_level,
+                        "opportunity_icon": opp_icon,
+                        "opportunity_color": opp_color,
+                        "asset_type": asset_type,
+                    })
+
+            time.sleep(2)
+
+        # Sort by total results descending (most popular = trending)
+        final[asset_type].sort(key=lambda x: x.get("total_results", 0), reverse=True)
+        # Keep top 5
+        final[asset_type] = final[asset_type][:5]
+
+        # Extra pause between categories
+        if asset_type != asset_types[-1]:
+            time.sleep(3)
+
+    return final
+
+
 # ─── AI-Powered Related Keywords ──────────────────────────────────────────────
 
 def generate_related_keywords_ai(keyword, asset_type="all", provider_name=None,
@@ -350,7 +485,7 @@ def generate_related_keywords_ai(keyword, asset_type="all", provider_name=None,
     
     user_prompt = (
         f'I\'m researching the keyword "{keyword}" for {asset_label} on Adobe Stock.\n\n'
-        f'Generate exactly 15 related keywords/phrases that are:\n'
+        f'Generate exactly 20 related keywords/phrases that are:\n'
         f'- Semantically related and contextually relevant to "{keyword}"\n'
         f'- Common search terms stock photo/video buyers would actually use\n'
         f'- A mix of broader and more specific variations\n'
@@ -441,6 +576,142 @@ def generate_related_keywords_ai(keyword, asset_type="all", provider_name=None,
     except Exception as e:
         logger.error(f"Error generating AI related keywords: {e}")
         return []
+
+
+def niche_gap_finder(keyword, asset_type="all", stop_event=None,
+                     on_progress=None, on_keyword_done=None):
+    """
+    Niche Gap Finder — find low-competition keyword opportunities.
+    
+    1. Search the main keyword on Adobe Stock to get longtail suggestions
+    2. Also fetch autocomplete suggestions
+    3. Analyze each suggestion's result count
+    4. Return sorted by opportunity (lowest results = best opportunity)
+    
+    No API key needed — uses Adobe Stock scraping only.
+    """
+    if not HAS_REQUESTS:
+        return []
+
+    session = AdobeStockSession.get_instance()
+    
+    # Phase 1: Collect candidate keywords from multiple sources
+    candidates = set()
+    
+    # Source 1: Longtail keywords from main search
+    try:
+        result = session.search(keyword, asset_type=asset_type)
+        longtails = result.get("longtail_keywords", [])
+        for lt in longtails:
+            kw_text = ""
+            if isinstance(lt, dict):
+                kw_text = lt.get("text", lt.get("keyword", "")).strip()
+            elif isinstance(lt, str):
+                kw_text = lt.strip()
+            if kw_text and len(kw_text) >= 3 and kw_text.lower() != keyword.lower():
+                candidates.add(kw_text)
+    except Exception as e:
+        logger.warning(f"Longtail fetch failed for '{keyword}': {e}")
+    
+    time.sleep(1)
+    
+    # Source 2: Autocomplete suggestions
+    try:
+        autocomplete = _fetch_autocomplete(session, keyword)
+        for kw in autocomplete:
+            if kw and len(kw) >= 3 and kw.lower() != keyword.lower():
+                candidates.add(kw)
+    except Exception as e:
+        logger.warning(f"Autocomplete fetch failed for '{keyword}': {e}")
+    
+    time.sleep(0.5)
+    
+    # Source 3: Try variations with common modifiers
+    modifiers = ["background", "abstract", "pattern", "texture", "design",
+                 "illustration", "art", "concept", "template", "modern"]
+    for mod in modifiers:
+        if stop_event and stop_event.is_set():
+            break
+        variation = f"{keyword} {mod}"
+        if variation.lower() not in {c.lower() for c in candidates}:
+            candidates.add(variation)
+    
+    # Limit candidates to avoid too many requests
+    candidate_list = list(candidates)[:25]
+    
+    if not candidate_list:
+        return []
+    
+    # Phase 2: Look up result count for each candidate
+    results = []
+    total = len(candidate_list)
+    
+    for i, kw in enumerate(candidate_list):
+        if stop_event and stop_event.is_set():
+            break
+        
+        result = search_adobe_stock(kw, asset_type=asset_type)
+        results.append(result)
+        
+        if on_keyword_done:
+            on_keyword_done(result)
+        if on_progress:
+            on_progress(i + 1, total)
+        
+        # Rate limit
+        time.sleep(0.8)
+    
+    # Sort by total results ascending (lowest = best opportunity)
+    results.sort(key=lambda x: x.get("total_results", 0) if x.get("total_results", -1) >= 0 else float("inf"))
+    
+    return results
+
+
+def _fetch_autocomplete(session, keyword):
+    """
+    Fetch autocomplete suggestions from Adobe Stock search.
+    Returns a list of keyword strings.
+    """
+    encoded_kw = urllib.parse.quote_plus(keyword.strip())
+    
+    # Adobe Stock autocomplete endpoint
+    url = "https://adobestock.com/Ajax/Search"
+    headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": f"https://stock.adobe.com/search?k={encoded_kw}",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    params = {
+        "k": keyword.strip(),
+        "limit": "1",
+        "search_type": "autosuggest",
+    }
+    
+    try:
+        resp = session._session.get(
+            "https://stock.adobe.com/Ajax/Search",
+            params=params, headers=headers, timeout=12
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            suggestions = []
+            # Try different possible response formats
+            for key in ("longtail_keywords", "suggestions", "autocomplete"):
+                items = data.get(key, [])
+                for item in items:
+                    if isinstance(item, dict):
+                        text = item.get("text", item.get("keyword", "")).strip()
+                    elif isinstance(item, str):
+                        text = item.strip()
+                    else:
+                        continue
+                    if text:
+                        suggestions.append(text)
+            return suggestions
+    except Exception as e:
+        logger.warning(f"Autocomplete request failed: {e}")
+    
+    return []
 
 
 def format_number(num):

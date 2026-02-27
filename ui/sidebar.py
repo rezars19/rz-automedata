@@ -261,12 +261,7 @@ class SidebarMixin:
             # Clear all assets
             import core.database as db
             db.clear_all()
-            for card in self.asset_cards.values():
-                if "row_frame" in card:
-                    card["row_frame"].destroy()
-            self.asset_cards.clear()
-            self.preview_images.clear()
-            self.card_row_counter = 0
+            self._clear_tree()
             self._update_csv_button_state()
             self.progress_label.configure(text="")
 

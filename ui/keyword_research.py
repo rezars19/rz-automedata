@@ -147,7 +147,7 @@ class KeywordResearchMixin:
         self._kr_show_empty_state()
 
         # ═══════════════════════════════════════════════════════════════════════
-        # RIGHT PANEL — Analysis Overview + Related Keywords (AI-powered)
+        # RIGHT PANEL — Related Keywords (AI-powered)
         # ═══════════════════════════════════════════════════════════════════════
         right_panel = ctk.CTkFrame(
             self.kr_page_frame, fg_color=COLORS["bg_dark"], corner_radius=12,
@@ -155,74 +155,56 @@ class KeywordResearchMixin:
         )
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=(8, 12))
         right_panel.grid_rowconfigure(1, weight=1)
-        right_panel.grid_rowconfigure(3, weight=2)
         right_panel.grid_columnconfigure(0, weight=1)
 
-        # ── Stats Header ──
-        stats_header = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_card"], corner_radius=0, height=48)
-        stats_header.grid(row=0, column=0, sticky="ew")
-        stats_header.grid_propagate(False)
-        ctk.CTkLabel(
-            stats_header, text="📊  Analysis Overview",
-            font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["neon_blue"]
-        ).pack(side="left", padx=16, pady=10)
-        ctk.CTkFrame(right_panel, fg_color=COLORS["neon_blue"], height=1, corner_radius=0).grid(
-            row=0, column=0, sticky="sew")
-
-        # Stats scroll area
-        self.kr_stats_scroll = ctk.CTkScrollableFrame(
-            right_panel, fg_color="transparent",
-            scrollbar_button_color=COLORS["accent_blue"],
-            scrollbar_button_hover_color=COLORS["neon_blue"]
-        )
-        self.kr_stats_scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-
-        self.kr_stats_placeholder = ctk.CTkLabel(
-            self.kr_stats_scroll,
-            text="🔍 Enter keywords and click Analyze\nto see detailed statistics",
-            font=ctk.CTkFont(size=12), text_color=COLORS["text_muted"],
-            justify="center"
-        )
-        self.kr_stats_placeholder.pack(pady=40)
-
-        # ── Related Keywords Header (AI-powered) ──
-        related_header = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_card"], corner_radius=0, height=40)
-        related_header.grid(row=2, column=0, sticky="ew")
+        # ── Related Keywords Header ──
+        related_header = ctk.CTkFrame(right_panel, fg_color=COLORS["bg_card"], corner_radius=0, height=48)
+        related_header.grid(row=0, column=0, sticky="ew")
         related_header.grid_propagate(False)
         ctk.CTkLabel(
             related_header, text="🤖  Related Keywords (AI)",
-            font=ctk.CTkFont(size=13, weight="bold"), text_color=COLORS["warning"]
-        ).pack(side="left", padx=16, pady=8)
+            font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["warning"]
+        ).pack(side="left", padx=16, pady=10)
 
         self.kr_related_status = ctk.CTkLabel(
             related_header, text="",
             font=ctk.CTkFont(size=9), text_color=COLORS["text_muted"]
         )
-        self.kr_related_status.pack(side="right", padx=16, pady=8)
+        self.kr_related_status.pack(side="right", padx=(0, 8))
+
+        self.kr_copy_all_related_btn = ctk.CTkButton(
+            related_header, text="📋 Copy All", width=90, height=28, corner_radius=6,
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color=COLORS["accent_blue"], hover_color=COLORS["neon_blue"],
+            text_color="white",
+            command=self._kr_copy_all_related
+        )
+        self.kr_copy_all_related_btn.pack(side="right", padx=8, pady=8)
 
         ctk.CTkFrame(right_panel, fg_color=COLORS["warning"], height=1, corner_radius=0).grid(
-            row=2, column=0, sticky="sew")
+            row=0, column=0, sticky="sew")
 
-        # Related keywords scroll area
+        # Related keywords scroll area (full height)
         self.kr_related_scroll = ctk.CTkScrollableFrame(
             right_panel, fg_color="transparent",
             scrollbar_button_color=COLORS["accent_blue"],
             scrollbar_button_hover_color=COLORS["neon_blue"]
         )
-        self.kr_related_scroll.grid(row=3, column=0, sticky="nsew", padx=4, pady=(4, 8))
+        self.kr_related_scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 8))
 
         self.kr_related_placeholder = ctk.CTkLabel(
             self.kr_related_scroll,
-            text="🤖 AI will suggest related keywords\nusing your configured AI provider",
-            font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"],
+            text="🤖 AI will suggest 20 related keywords\nusing your configured AI provider\n\nSearch a keyword first to generate",
+            font=ctk.CTkFont(size=12), text_color=COLORS["text_muted"],
             justify="center"
         )
-        self.kr_related_placeholder.pack(pady=30)
+        self.kr_related_placeholder.pack(pady=60)
 
         # ── State ──
         self._kr_analyzing = False
         self._kr_stop_event = threading.Event()
         self._kr_results = []
+        self._kr_related_keywords = []
 
     # ─── Asset Type Selector ──────────────────────────────────────────────────
 
@@ -331,16 +313,8 @@ class KeywordResearchMixin:
         # Clear previous results
         self._kr_build_results_table(keywords)
 
-        # Clear stats
-        for w in self.kr_stats_scroll.winfo_children():
-            w.destroy()
-        self.kr_stats_placeholder = ctk.CTkLabel(
-            self.kr_stats_scroll,
-            text="⏳ Analyzing keywords...",
-            font=ctk.CTkFont(size=12), text_color=COLORS["text_muted"],
-            justify="center"
-        )
-        self.kr_stats_placeholder.pack(pady=40)
+        # Clear related keywords list for Copy All
+        self._kr_related_keywords = []
 
         # Clear related keywords area
         for w in self.kr_related_scroll.winfo_children():
@@ -611,119 +585,25 @@ class KeywordResearchMixin:
         self.kr_analyze_btn.configure(text="🚀  Analyze", fg_color=COLORS["accent_blue"])
         self.kr_progress_frame.grid_remove()
 
-        # Update stats panel
-        self._kr_update_stats_panel(results)
-
-    # ─── Stats Panel ──────────────────────────────────────────────────────────
-
-    def _kr_update_stats_panel(self, results):
-        """Update the right-side stats panel with analysis results."""
-        for w in self.kr_stats_scroll.winfo_children():
-            w.destroy()
-
-        valid_results = [r for r in results if r.get("total_results", -1) >= 0]
-        if not valid_results:
-            ctk.CTkLabel(
-                self.kr_stats_scroll, text="⚠️ No valid results",
-                font=ctk.CTkFont(size=12), text_color=COLORS["text_muted"]
-            ).pack(pady=40)
-            return
-
-        # Summary stats card
-        summary_card = ctk.CTkFrame(
-            self.kr_stats_scroll, fg_color=COLORS["bg_card"], corner_radius=10,
-            border_width=1, border_color=COLORS["border"]
-        )
-        summary_card.pack(fill="x", padx=4, pady=(4, 8))
-
-        ctk.CTkLabel(
-            summary_card, text="📈 Summary",
-            font=ctk.CTkFont(size=13, weight="bold"), text_color=COLORS["neon_blue"]
-        ).pack(padx=12, pady=(8, 4), anchor="w")
-
-        total_kw = len(valid_results)
-        avg_results = sum(r["total_results"] for r in valid_results) // total_kw
-        highest = max(valid_results, key=lambda x: x["total_results"])
-        lowest = min(valid_results, key=lambda x: x["total_results"])
-
-        stats_data = [
-            ("Keywords analyzed", str(total_kw), COLORS["neon_blue"]),
-            ("Average results", format_number(avg_results), COLORS["text_primary"]),
-            ("Most competitive", f'"{highest["keyword"]}" ({format_number(highest["total_results"])})', COLORS["error"]),
-            ("Best opportunity", f'"{lowest["keyword"]}" ({format_number(lowest["total_results"])})', COLORS["success"]),
-        ]
-
-        for label, value, color in stats_data:
-            row = ctk.CTkFrame(summary_card, fg_color="transparent")
-            row.pack(fill="x", padx=12, pady=2)
-            ctk.CTkLabel(
-                row, text=label + ":",
-                font=ctk.CTkFont(size=10), text_color=COLORS["text_muted"]
-            ).pack(side="left")
-            ctk.CTkLabel(
-                row, text=value,
-                font=ctk.CTkFont(size=10, weight="bold"), text_color=color
-            ).pack(side="right")
-
-        ctk.CTkLabel(summary_card, text="").pack(pady=2)  # Spacer
-
-        # Individual keyword cards
-        for r in valid_results:
-            self._kr_create_keyword_card(r)
-
-    def _kr_create_keyword_card(self, result):
-        """Create a mini card for each keyword in the stats panel."""
-        card = ctk.CTkFrame(
-            self.kr_stats_scroll, fg_color=COLORS["bg_card"], corner_radius=8,
-            border_width=1, border_color=COLORS["border"]
-        )
-        card.pack(fill="x", padx=4, pady=2)
-
-        # Top row: keyword + results
-        top = ctk.CTkFrame(card, fg_color="transparent")
-        top.pack(fill="x", padx=10, pady=(6, 2))
-
-        ctk.CTkLabel(
-            top, text=f'📊 "{result["keyword"]}"',
-            font=ctk.CTkFont(size=11, weight="bold"), text_color=COLORS["text_primary"]
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            top, text=format_number(result["total_results"]),
-            font=ctk.CTkFont(size=11, weight="bold"), text_color=COLORS["neon_blue"]
-        ).pack(side="right")
-
-        # Bottom row: competition + opportunity badges
-        bottom = ctk.CTkFrame(card, fg_color="transparent")
-        bottom.pack(fill="x", padx=10, pady=(0, 6))
-
-        comp_badge = ctk.CTkLabel(
-            bottom,
-            text=f" {result['competition_icon']} {result['competition_level']} ",
-            font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=result["competition_color"],
-            fg_color=COLORS["bg_input"], corner_radius=4
-        )
-        comp_badge.pack(side="left", padx=(0, 4))
-
-        opp_badge = ctk.CTkLabel(
-            bottom,
-            text=f" {result['opportunity_icon']} {result['opportunity_level']} ",
-            font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=result["opportunity_color"],
-            fg_color=COLORS["bg_input"], corner_radius=4
-        )
-        opp_badge.pack(side="left")
-
-        # Asset type badge
-        asset_label = ASSET_TYPE_LABELS.get(result.get("asset_type", "all"), "All")
-        ctk.CTkLabel(
-            bottom, text=f" {asset_label} ",
-            font=ctk.CTkFont(size=8), text_color=COLORS["text_muted"],
-            fg_color=COLORS["bg_input"], corner_radius=3
-        ).pack(side="right")
 
     # ─── Related Keywords (AI-Powered) ────────────────────────────────────────
+
+    def _kr_copy_all_related(self):
+        """Copy all related keywords as comma-separated list."""
+        if not self._kr_related_keywords:
+            return
+        text = ", ".join(self._kr_related_keywords)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.kr_copy_all_related_btn.configure(text="✅ Copied!")
+        self.after(1500, lambda: self.kr_copy_all_related_btn.configure(text="📋 Copy All"))
+
+    def _kr_copy_keyword(self, keyword, btn):
+        """Copy a single keyword to clipboard."""
+        self.clipboard_clear()
+        self.clipboard_append(keyword)
+        btn.configure(text="✅")
+        self.after(1000, lambda: btn.configure(text="📋"))
 
     def _kr_show_related_no_api(self):
         """Show message when no AI provider is configured."""
@@ -762,6 +642,11 @@ class KeywordResearchMixin:
                 w.destroy()
                 break
         
+        # Track keyword for Copy All
+        kw = result.get("keyword", "")
+        if kw and kw not in self._kr_related_keywords:
+            self._kr_related_keywords.append(kw)
+
         # Create card in the related scroll area
         self._kr_create_related_card(result)
 
@@ -810,37 +695,43 @@ class KeywordResearchMixin:
                 font=ctk.CTkFont(size=10), text_color=COLORS["error"]
             ).pack(side="right")
 
-        # Bottom row: competition + opportunity + link
+        # Bottom row: competition + opportunity + copy + link
         bottom = ctk.CTkFrame(card, fg_color="transparent")
         bottom.pack(fill="x", padx=10, pady=(0, 6))
 
         if total >= 0:
-            comp_badge = ctk.CTkLabel(
+            ctk.CTkLabel(
                 bottom,
                 text=f" {result['competition_icon']} {result['competition_level']} ",
                 font=ctk.CTkFont(size=9, weight="bold"),
                 text_color=result["competition_color"],
                 fg_color=COLORS["bg_input"], corner_radius=4
-            )
-            comp_badge.pack(side="left", padx=(0, 4))
+            ).pack(side="left", padx=(0, 4))
 
-            opp_badge = ctk.CTkLabel(
+            ctk.CTkLabel(
                 bottom,
                 text=f" {result['opportunity_icon']} {result['opportunity_level']} ",
                 font=ctk.CTkFont(size=9, weight="bold"),
                 text_color=result["opportunity_color"],
                 fg_color=COLORS["bg_input"], corner_radius=4
-            )
-            opp_badge.pack(side="left")
+            ).pack(side="left")
 
         # Open link button
-        link_btn = ctk.CTkButton(
+        ctk.CTkButton(
             bottom, text="🔗", width=24, height=22, corner_radius=4,
             fg_color="transparent", hover_color=COLORS["bg_card_hover"],
             font=ctk.CTkFont(size=12),
             command=lambda kw=result["keyword"]: self._kr_open_adobe_stock(kw)
+        ).pack(side="right")
+
+        # Copy button
+        copy_btn = ctk.CTkButton(
+            bottom, text="📋", width=24, height=22, corner_radius=4,
+            fg_color="transparent", hover_color=COLORS["bg_card_hover"],
+            font=ctk.CTkFont(size=12),
         )
-        link_btn.pack(side="right")
+        copy_btn.configure(command=lambda kw=result["keyword"], b=copy_btn: self._kr_copy_keyword(kw, b))
+        copy_btn.pack(side="right", padx=(0, 4))
 
     # ─── Utilities ────────────────────────────────────────────────────────────
 

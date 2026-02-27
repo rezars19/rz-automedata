@@ -1,5 +1,5 @@
 """
-RZ Automedata - Build Script
+RZ Studio - Build Script
 Build the application into a standalone exe using PyInstaller.
 
 Usage:
@@ -10,11 +10,19 @@ import subprocess
 import sys
 import os
 import shutil
+import stat
+import time
+
+
+def remove_readonly(func, path, _):
+    """Clear the readonly bit and reattempt the removal"""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 
 def main():
     print("=" * 60)
-    print("  RZ Automedata - Build to EXE")
+    print("  RZ Studio- Build to EXE")
     print("=" * 60)
     print()
 
@@ -22,12 +30,20 @@ def main():
     for folder in ["build", "dist"]:
         if os.path.exists(folder):
             print(f"[*] Cleaning {folder}/...")
-            shutil.rmtree(folder)
+            try:
+                shutil.rmtree(folder, onerror=remove_readonly)
+            except PermissionError:
+                print(f"[!] Could not clean {folder}. Retrying in 2 seconds...")
+                time.sleep(2)
+                try:
+                    shutil.rmtree(folder, onerror=remove_readonly)
+                except Exception as e:
+                    print(f"[!] Warning: Could not fully clean {folder}: {e}")
 
     # Build command
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name=RZAutomedata",
+        "--name=RZ Studio",
         "--onefile",                    # Single exe file
         "--windowed",                   # No console window
         "--icon=icon.ico",              # App icon

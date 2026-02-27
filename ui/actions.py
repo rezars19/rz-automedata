@@ -10,10 +10,11 @@ import threading
 import os
 import pathlib
 import sys
+import gc
 
 import core.database as db
-from ui.theme import COLORS, PREVIEW_SIZE, compress_preview
-from core.metadata_processor import get_file_type, load_preview_image, process_all_assets
+from ui.theme import COLORS
+from core.metadata_processor import get_file_type, process_all_assets
 from core.csv_exporter import export_csv
 
 # Notification sound (Windows built-in)
@@ -30,13 +31,13 @@ class ActionsMixin:
     # ─── Asset Management ────────────────────────────────────────────────────────
 
     def _add_assets(self, file_paths):
-        """Add selected files as assets with progress popup."""
+        """Add selected files as assets with progress popup. Thumbnails lazy-loaded."""
         file_paths = list(file_paths)
         total = len(file_paths)
         if total == 0:
             return
 
-        self.empty_label.grid_forget()
+        self.empty_label.place_forget()
 
         # Create progress popup
         progress_popup = ctk.CTkToplevel(self)
@@ -46,7 +47,7 @@ class ActionsMixin:
         progress_popup.configure(fg_color=COLORS["bg_dark"])
         progress_popup.transient(self)
         progress_popup.grab_set()
-        progress_popup.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing
+        progress_popup.protocol("WM_DELETE_WINDOW", lambda: None)
 
         # Center on main window
         self.update_idletasks()
@@ -86,61 +87,67 @@ class ActionsMixin:
         )
         status_text.pack(pady=(0, 12))
 
-        def _process_assets():
+        def _prepare_assets():
+            """Background thread: DB entries only (no preview loading)."""
+            prepared = []
             for i, file_path in enumerate(file_paths):
                 file_type = get_file_type(file_path)
                 if file_type is None:
                     self._log(f"⚠ Skipped unsupported: {os.path.basename(file_path)}")
-                    self.after(0, lambda idx=i: _update_progress(idx + 1, True))
                     continue
 
                 filename = os.path.basename(file_path)
-
-                try:
-                    raw_img = load_preview_image(file_path, file_type, size=PREVIEW_SIZE)
-                    if raw_img is not None:
-                        preview_img = compress_preview(raw_img)
-                    else:
-                        preview_img = None
-                except Exception as e:
-                    self._log(f"⚠ Preview error ({filename}): {type(e).__name__}: {e}")
-                    preview_img = None
-
                 asset_id = db.add_asset(file_path, file_type, "", filename)
+                prepared.append((asset_id, filename, file_type, file_path))
 
-                # UI updates must happen on main thread
-                self.after(0, lambda aid=asset_id, fn=filename, ft=file_type, pi=preview_img, idx=i:
-                    _add_row_and_update(aid, fn, ft, pi, idx + 1))
+                # Throttled progress updates
+                if (i + 1) % 10 == 0 or i == total - 1:
+                    self.after(0, lambda idx=i + 1, fn=filename:
+                        _update_progress(idx, fn))
 
-            # Close popup when done
-            self.after(100, _finish_upload)
+            self.after(0, lambda: _insert_all_rows(prepared))
 
-        def _update_progress(current, skip=False):
+        def _update_progress(current, filename):
             try:
-                progress_bar.set(current / total)
-                progress_text.configure(text=f"{current} / {total} assets")
-                if skip:
-                    status_text.configure(text="Skipped unsupported file...")
+                progress_bar.set(current / total * 0.9)
+                progress_text.configure(text=f"Loading {current} / {total}")
+                status_text.configure(text=f"{filename}")
             except Exception:
                 pass
 
-        def _add_row_and_update(asset_id, filename, file_type, preview_img, current):
-            self._create_table_row(asset_id, filename, file_type, preview_img)
-            self._log(f"📁 Added: {filename} ({file_type})")
-            _update_progress(current)
-            status_text.configure(text=f"Loading: {filename}")
+        def _insert_all_rows(prepared):
+            """Insert all rows at once — thumbnails lazy-loaded after."""
+            self._freeze_table_scroll()
+            try:
+                for asset_id, filename, file_type, file_path in prepared:
+                    self._create_table_row(asset_id, filename, file_type,
+                                           file_path=file_path)
+            finally:
+                self._thaw_table_scroll()
+
+            self._log(f"📁 Added {len(prepared)} assets to table")
+
+            try:
+                progress_bar.set(1.0)
+                progress_text.configure(text=f"{len(prepared)} / {len(prepared)} assets")
+                status_text.configure(text="Complete!")
+            except Exception:
+                pass
+
+            self._update_counter()
+            self._schedule_thumb_load()
+            self.after(300, _finish_upload)
 
         def _finish_upload():
-            self._update_counter()
             try:
                 progress_popup.grab_release()
                 progress_popup.destroy()
             except Exception:
                 pass
-            self._show_toast(f"✅ {total} assets berhasil di-upload!")
+            self._show_toast(f"✅ {total} assets uploaded!")
+            gc.collect()
 
-        # Run in background thread
-        threading.Thread(target=_process_assets, daemon=True).start()
+        threading.Thread(target=_prepare_assets, daemon=True).start()
 
     # ─── Generate / Stop ─────────────────────────────────────────────────────────
 
@@ -226,9 +233,14 @@ class ActionsMixin:
         def on_asset_done(asset_id, result):
             if result:
                 success_count[0] += 1
-                self.after(0, self._update_asset_card, asset_id,
-                           result["title"], result["keywords"], result.get("category", ""),
-                           result.get("prompt", ""))
+                # Use lambda to avoid Tcl string conversion which truncates
+                # long keyword strings containing commas and special chars
+                _aid = asset_id
+                _t = result["title"]
+                _k = result["keywords"]
+                _c = result.get("category", "")
+                _p = result.get("prompt", "")
+                self.after(0, lambda: self._update_asset_card(_aid, _t, _k, _c, _p))
             else:
                 error_count[0] += 1
             self.after(0, self._update_counter)
@@ -414,20 +426,12 @@ class ActionsMixin:
             return
 
         db.clear_all()
-
-        for card in self.asset_cards.values():
-            if "row_frame" in card:
-                card["row_frame"].destroy()
-
-        self.asset_cards.clear()
-        self.preview_images.clear()
-        self.card_row_counter = 0
-
-        self.empty_label.grid(row=0, column=0, columnspan=len(self.col_config), pady=80)
+        self._clear_tree()
         self._update_counter()
         self._update_csv_button_state()
         self._log("🗑 All assets cleared.")
         self.progress_label.configure(text="")
+        gc.collect()
 
     # ─── Download CSV ────────────────────────────────────────────────────────────
 
@@ -435,8 +439,8 @@ class ActionsMixin:
         """Enable/disable CSV download button based on whether any asset has metadata."""
         has_metadata = False
         for card in self.asset_cards.values():
-            title = card["title"].get("1.0", "end-1c").strip()
-            keywords = card["keywords"].get("1.0", "end-1c").strip()
+            title = card.get("title", "").strip()
+            keywords = card.get("keywords", "").strip()
             if title or keywords:
                 has_metadata = True
                 break
@@ -461,21 +465,40 @@ class ActionsMixin:
             return
 
         merged = []
-        has_metadata = False
+        skipped = 0
         for asset_id, card in self.asset_cards.items():
-            # Get filename from DB for this asset
+            # Get full asset data from DB (source of truth for keywords)
             asset = db.get_asset_by_id(asset_id)
-            filename = asset["filename"] if asset else f"asset_{asset_id}"
+            filename = asset["filename"] if asset else card.get("filename", f"asset_{asset_id}")
 
-            title = card["title"].get("1.0", "end-1c").strip()
-            keywords = card["keywords"].get("1.0", "end-1c").strip()
+            title = card.get("title", "").strip()
+            keywords = card.get("keywords", "").strip()
 
-            if title or keywords:
-                has_metadata = True
+            # ── Fallback: if card keywords look incomplete, use DB ──────
+            # The UI card may have truncated keywords due to Tcl string
+            # conversion issues with self.after(). The database always
+            # stores the full keyword string from the AI response.
+            if asset:
+                db_keywords = (asset.get("keywords", "") or "").strip()
+                if db_keywords:
+                    # Count keywords in both sources
+                    card_kw_count = len([k for k in keywords.split(",") if k.strip()]) if keywords else 0
+                    db_kw_count = len([k for k in db_keywords.split(",") if k.strip()])
+                    # Use DB version if it has more keywords (card was truncated)
+                    if db_kw_count > card_kw_count:
+                        keywords = db_keywords
+                # Also fallback title from DB if card title is empty
+                if not title:
+                    title = (asset.get("title", "") or "").strip()
+
+            # Skip assets with completely empty metadata (no title AND no keywords)
+            if not title and not keywords:
+                skipped += 1
+                continue
 
             if self.current_platform == "freepik":
-                prompt_text = card["prompt"].get("1.0", "end-1c").strip() if card.get("prompt") else ""
-                model_text = card["model"].get().strip() if card.get("model") else ""
+                prompt_text = card.get("prompt", "").strip()
+                model_text = card.get("model", "").strip()
                 merged.append({
                     "filename": filename,
                     "title": title,
@@ -493,9 +516,15 @@ class ActionsMixin:
                     "category": category
                 })
 
-        if not has_metadata:
-            messagebox.showwarning("No Metadata", "Generate metadata first.")
+        if not merged:
+            if skipped > 0:
+                messagebox.showwarning("No Metadata", f"Generate metadata first.\n{skipped} asset(s) have no metadata yet.")
+            else:
+                messagebox.showwarning("No Metadata", "Generate metadata first.")
             return
+
+        if skipped > 0:
+            self._log(f"⚠ Skipped {skipped} asset(s) with no metadata in CSV export.")
 
         desktop = str(pathlib.Path.home() / "Desktop")
         default_names = {

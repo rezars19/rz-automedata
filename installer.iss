@@ -4,7 +4,7 @@
 ; 
 ; Prerequisites:
 ;   - Install Inno Setup 6 dari https://jrsoftware.org/isinfo.php
-;   - Pastikan dist\RZAutomedata.exe sudah di-build dulu (python build.py)
+;   - Pastikan dist\RZ Studio.exe sudah di-build dulu (python build.py)
 ;
 ; Cara compile:
 ;   1. Buka file ini di Inno Setup Compiler
@@ -16,11 +16,11 @@
 ; ============================================================
 
 ; ── App Metadata ─────────────────────────────────────────────
-#define MyAppName "RZ Automedata"
-#define MyAppVersion "1.1.0"
+#define MyAppName "RZ Studio"
+#define MyAppVersion "1.2.5"
 #define MyAppPublisher "RZ Studio"
 #define MyAppURL "https://github.com/rezars19/rz-automedata"
-#define MyAppExeName "RZAutomedata.exe"
+#define MyAppExeName "RZ Studio.exe"
 #define MyAppCopyright "Copyright © 2026 RZ Studio"
 
 [Setup]
@@ -42,7 +42,7 @@ DisableProgramGroupPage=yes
 
 ; ── Output ───────────────────────────────────────────────────
 OutputDir=Output
-OutputBaseFilename=RZAutomedata_Setup_v{#MyAppVersion}
+OutputBaseFilename=RZ_Studio_Setup_v{#MyAppVersion}
 SetupIconFile=icon.ico
 
 ; ── Compression ──────────────────────────────────────────────
@@ -104,6 +104,16 @@ Source: "logo.png"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Cairo DLLs (jika ada file didalamnya)
 Source: "cairo_dlls\*"; DestDir: "{app}\cairo_dlls"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; FFmpeg (bundled for abstract video encoding)
+Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
+
+; RealESRGAN engine (bundled for local upscaling)
+Source: "realesrgan-engine\realesrgan-ncnn-vulkan.exe"; DestDir: "{app}\realesrgan-engine"; Flags: ignoreversion
+Source: "realesrgan-engine\vcomp140.dll"; DestDir: "{app}\realesrgan-engine"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "realesrgan-engine\vcomp140d.dll"; DestDir: "{app}\realesrgan-engine"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "realesrgan-engine\models\*.bin"; DestDir: "{app}\realesrgan-engine\models"; Flags: ignoreversion
+Source: "realesrgan-engine\models\*.param"; DestDir: "{app}\realesrgan-engine\models"; Flags: ignoreversion
 
 [Icons]
 ; Desktop shortcut (explicitly use high-quality icon.ico)

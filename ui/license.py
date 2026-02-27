@@ -23,7 +23,7 @@ class LicenseUpdateMixin:
 
     def _show_license_screen(self, error_message):
         """Show license activation screen when license is invalid."""
-        self.title("⚡ RZ Automedata — Aktivasi Diperlukan")
+        self.title("⚡ RZ Studio — Aktivasi Diperlukan")
         self.geometry("620x600")
         self.minsize(520, 550)
         self.resizable(False, False)
@@ -165,7 +165,7 @@ class LicenseUpdateMixin:
             "1. Copy Machine ID di atas\n"
             "2. Kirim ke admin untuk aktivasi\n"
             "3. Setelah admin mengaktifkan, klik Refresh\n"
-            "4. Langganan: Rp30.000/bulan (30 hari)"
+            "4. Langganan: Rp40.000/bulan (30 hari)"
         )
         ctk.CTkLabel(
             info_card, text=steps_text,

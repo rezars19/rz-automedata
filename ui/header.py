@@ -26,13 +26,13 @@ class HeaderMixin:
         title_box.pack(side="left", padx=24, pady=10)
 
         ctk.CTkLabel(
-            title_box, text="⚡ RZ Automedata",
+            title_box, text="⚡ RZ Studio",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=COLORS["neon_blue"]
         ).pack(side="left")
 
         ctk.CTkLabel(
-            title_box, text="  |  Stock Metadata Generator",
+            title_box, text="  |  Creative Suite",
             font=ctk.CTkFont(family="Segoe UI", size=13),
             text_color=COLORS["text_secondary"]
         ).pack(side="left", padx=(8, 0))

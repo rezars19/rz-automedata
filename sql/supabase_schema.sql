@@ -251,7 +251,7 @@ VALUES ('1.0.0', 'Initial release - RZ Automedata', 'https://example.com/downloa
 INSERT INTO admin_settings (key, value) VALUES
     ('app_name', 'RZ Automedata'),
     ('trial_days', '2'),
-    ('monthly_price', '30000'),
+    ('monthly_price', '40000'),
     ('default_plan_duration', '30');
 
 
